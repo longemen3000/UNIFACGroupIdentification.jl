@@ -1,0 +1,13 @@
+name = "UNIFACGroupIdentification"
+uuid = "37c3dbc6-c5df-4f32-9b7c-f1269250de9a"
+authors = ["longemen3000 <longemen3000@gmail.com> and contributors"]
+version = "0.1.0"
+
+[compat]
+julia = "1"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]

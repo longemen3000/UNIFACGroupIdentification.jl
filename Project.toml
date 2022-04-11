@@ -3,6 +3,9 @@ uuid = "37c3dbc6-c5df-4f32-9b7c-f1269250de9a"
 authors = ["longemen3000 <longemen3000@gmail.com> and contributors"]
 version = "0.1.0"
 
+[deps]
+MolecularGraph = "6c89ec66-9cd8-5372-9f91-fabc50dd27fd"
+
 [compat]
 julia = "1"
 

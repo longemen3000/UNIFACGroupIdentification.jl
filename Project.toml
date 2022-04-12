@@ -7,6 +7,7 @@ version = "0.1.0"
 MolecularGraph = "6c89ec66-9cd8-5372-9f91-fabc50dd27fd"
 
 [compat]
+MolecularGraph = "0.11"
 julia = "1"
 
 [extras]

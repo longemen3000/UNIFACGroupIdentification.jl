@@ -28,6 +28,11 @@ function get_num_atoms(mol)
     return sum(values(atoms))
 end
 
+function get_atoms(mol)
+    atoms = MolecularGraph.atomcounter(mol)
+    return keys(atoms)
+end
+
 function get_heavy_atom_count(mol)
     atoms = MolecularGraph.atomcounter(mol)
     atoms[:H] = 0
@@ -66,6 +71,11 @@ function get_neighbors(m)
     return 1
 end
 
+function get_mol_frags(m)
+    mol = MolecularGraph.removehydrogens(m)
+    return MolecularGraph.Graph.connectedcomponents(mol)
+end
+
 function get_substruct_matches(frag::Fragmenter,mol_searched_for, mol_searched_in, atomIdxs_to_which_new_matches_have_to_be_adjacent)
     valid_matches = []
     if get_num_atoms(mol_searched_in) >= get_num_atoms(mol_searched_for)
@@ -94,8 +104,8 @@ function Fragmenter(scheme,
     match_hydrogens=false,
     algorithm::Symbol = :combined,
     n_atoms_cutoff = -1,
-    function_to_choose_fragmentation = nothing,
-    n_max_fragmentations_to_find = -1
+    function_to_choose_fragmentation = first,
+    n_max_fragmentations_to_find = -1,
     name = :auto)
 
     if algorithm ∉ (:simple,:complete,:combined)
@@ -173,5 +183,79 @@ end
 
 #the real algorithm starts here
 function fragment(molecule::MolecularGraph.GraphMol,frag::Fragmenter)
-    
+    sucess = []
+    fragmentation = Dict{Int,Any}()
+    fragmentation_matches = Dict{Int,Any}()
+    frags = get_mol_frags(molecule)
+    for mol in frags
+        this_mol_fragmentation, this_mol_success = __get_fragmentation(mol,frag)
+        for (SMARTS, matches) in pairs(this_mol_fragmentation)
+            group_number = frag.scheme_group_number_lookup[SMARTS]
+            if group number ∉ fragmentation
+                fragmentation[group_number] = 0
+                fragmentation_matches[group_number] = []
+            end
+            fragmentation[group_number] += length(matches)
+            append!(fragmentation_matches[group_number],matches)   
+        end
+        append!(success,this_mol_success)
+    end
+    return fragmentation,all(success),fragmentation_matches    
+end
+
+function fragment_complete(molecule,frag::Fragmenter)
+    try
+        molecule = MolecularGraph.smilestomol(smiles)
+        if frag.match_hydrogens
+            molecule = MolecularGraph.addhydrogens(molecule)
+        end
+        return fragment_complete(molecule,frag)
+    catch
+        throw(error("$smiles is not a valid SMILES"))
+    end
+end
+
+function fragment_complete(molecule::MolecularGraph.GraphMol,frag::Fragmenter)
+    frags = get_mol_frags(molecule)
+    if !isone(length(frags))
+        throw(error("`fragment_complete` does not accept multifragment molecules"))
+    end
+
+    temp_fragmentations, success = __complete_fragmentation(molecule)
+    fragmentations = []
+    fragmentations_matches = []
+    for temp_fragmentation in temp_fragmentations
+        fragmentation = Dict{Int,Any}()
+        fragmentation_matches = Dict{Int,Any}()
+        for (SMARTS, matches) in pairs(temp_fragmentation)
+            group_number = frag.scheme_group_number_lookup[SMARTS]
+            fragmentation[group_number] = length(matches)
+            fragmentation_matches[group_number] = matches
+        end
+        push!(fragmentations,fragmentation)
+        push!(fragmentations_matches,fragmentation_matches)
+    end
+    return fragmentations, success, fragmentations_matches
+end
+
+function __get_fragmentation(molecule,frag::Fragmenter)
+   success = false
+   fragmentation = Dict{String,Any}()
+    if frag.algorithm in (:simple,:combined)
+        fragmentation, success = __simple_fragmentation(molecule,frag)
+        success && (return fragmentation, success)
+    end
+
+    if frag.algorithm in (:combined,:complete)
+        fragmentation, success = __complete_fragmentation(molecule,frag)
+        success && (return frag.function_to_choose_fragmentation(fragmentation), success)
+    end
+end
+
+function __simple_fragmentation(molecule,frag::Fragmenter)
+    if frag.match_hydrogens
+        target_atom_count = length(get_atoms(molecule))
+    else
+        target_atom_count = length(get_heavy_atoms(molecule))
+    end
 end

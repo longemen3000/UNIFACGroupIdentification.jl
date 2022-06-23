@@ -19,10 +19,11 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
-uses MolecularGraph.jl instead of RDKit.jl
 =#
 
+#=
+
+=#
 function get_num_atoms(mol)
     atoms = MolecularGraph.atomcounter(mol)
     return sum(values(atoms))
@@ -41,6 +42,7 @@ end
 
 struct Fragmenter{S,O,F}
     name::Symbol
+    algorithm::Symbol
     n_max_fragmentations_to_find::Int
     n_atoms_cuttoff::Int
     match_hydrogens::Bool
@@ -49,6 +51,43 @@ struct Fragmenter{S,O,F}
     function_to_choose_fragmentation::F
     scheme_pattern_lookup::Dict{String,Any}
     scheme_group_number_lookup::Dict{String,String}
+end
+
+function Base.show(io::IO,::MIME"text/plain",frag::Fragmenter)
+    space = "  "
+    alg = frag.algorithm
+    println(io," Fragmenter(",frag.name,"): ")
+    println(io,space,"algorithm: ",alg)
+
+    if alg != :simple
+        println(io,space,"max fragmentations to find: ",frag.n_max_fragmentations_to_find)
+        println(io,space,"atoms cutoff: ",frag.n_atoms_cuttoff)
+    end
+
+    print(io,space,"scheme: ",frag.scheme)
+    if frag.scheme_order !== nothing && alg != :simple
+        println(io)
+        print(io,space,"scheme order: ",frag.scheme_order)
+    end
+end
+
+function Base.show(io::IO,frag::Fragmenter)
+    comma = ", "
+    alg = frag.algorithm
+    print(io,"Fragmenter(")
+    print(io,frag.name,comma)
+    print(io,"algorithm = ",frag.algorithm,comma)
+
+    if alg != :simple
+        print(io,"n_max_fragmentations_to_find = ",frag.n_max_fragmentations_to_find,comma)
+        print(io,"n_atoms_cutoff = ",frag.n_atoms_cuttoff)
+    end
+
+    print(io,"scheme = ",frag.scheme)
+    if frag.scheme_order !== nothing && alg != :simple
+        print(io,comma,"scheme_order = ",frag.scheme_order)
+    end
+    print(io,")")
 end
 
 function mol(smiles)
@@ -99,9 +138,9 @@ function get_substruct_matches(frag::Fragmenter,mol_searched_for, mol_searched_i
     return valid_matches
 end
 
-function Fragmenter(scheme,
-    scheme_order = nothing;
-    match_hydrogens=false,
+function Fragmenter(scheme;
+    scheme_order = nothing,
+    match_hydrogens=true,
     algorithm::Symbol = :combined,
     n_atoms_cutoff = -1,
     function_to_choose_fragmentation = first,
@@ -119,8 +158,8 @@ function Fragmenter(scheme,
     end
 
     if algorithm ∈ (:complete,:combined)
-        if n_atoms_cuttoff == -1 
-            throw(error("n_atoms_cuttoff needs to be specified for complete or combined algorithms"))
+        if n_atoms_cutoff == -1 
+            throw(error("n_atoms_cutoff needs to be specified for complete or combined algorithms"))
         end
 
         if isnothing(function_to_choose_fragmentation)
@@ -134,7 +173,7 @@ function Fragmenter(scheme,
 
     if algorithm ∈ (:complete,:combined)
         if isnothing(scheme_order)
-            scheme_order = first.(scheme) 
+            scheme_order = first.(scheme)
             #im supposing scheme is a vector of 2-tuples or a vector of pairs.
             #python dicts are ordered, we can't count on that on julia.
         end
@@ -159,6 +198,7 @@ function Fragmenter(scheme,
     end
 
     return Fragmenter(:auto,
+        algorithm,
         n_max_fragmentations_to_find,
         n_atoms_cutoff,
         match_hydrogens,
@@ -172,25 +212,25 @@ end
 function fragment(smiles::String,frag::Fragmenter)
     try
         molecule = MolecularGraph.smilestomol(smiles)
-        if frag.match_hydrogens
-            molecule = MolecularGraph.addhydrogens(molecule)
-        end
-        return fragment(molecule,frag)
     catch
         throw(error("$smiles is not a valid SMILES"))
     end
+    if frag.match_hydrogens
+        molecule = MolecularGraph.addhydrogens(molecule)
+    end
+    return fragment(molecule,frag)
 end
 
 #the real algorithm starts here
-function fragment(molecule::MolecularGraph.GraphMol,frag::Fragmenter)
+function fragment(molecule::MolecularGraph.GraphMol,fragmenter::Fragmenter)
     sucess = []
     fragmentation = Dict{Int,Any}()
     fragmentation_matches = Dict{Int,Any}()
     frags = get_mol_frags(molecule)
-    for mol in frags
-        this_mol_fragmentation, this_mol_success = __get_fragmentation(mol,frag)
+    for frag in frags
+        this_mol_fragmentation, this_mol_success = __get_fragmentation(molecule,frag,fragmenter)
         for (SMARTS, matches) in pairs(this_mol_fragmentation)
-            group_number = frag.scheme_group_number_lookup[SMARTS]
+            group_number = fragmenter.scheme_group_number_lookup[SMARTS]
             if group number ∉ fragmentation
                 fragmentation[group_number] = 0
                 fragmentation_matches[group_number] = []
@@ -238,24 +278,40 @@ function fragment_complete(molecule::MolecularGraph.GraphMol,frag::Fragmenter)
     return fragmentations, success, fragmentations_matches
 end
 
-function __get_fragmentation(molecule,frag::Fragmenter)
+function __get_fragmentation(molecule,frag,fragmenter::Fragmenter)
    success = false
-   fragmentation = Dict{String,Any}()
-    if frag.algorithm in (:simple,:combined)
-        fragmentation, success = __simple_fragmentation(molecule,frag)
+    if fragmenter.algorithm in (:simple,:combined)
+        fragmentation, success = __simple_fragmentation(molecule,frag,fragmenter)
         success && (return fragmentation, success)
     end
 
     if frag.algorithm in (:combined,:complete)
-        fragmentation, success = __complete_fragmentation(molecule,frag)
+        fragmentation, success = __complete_fragmentation(molecule,frag,fragmenter)
         success && (return frag.function_to_choose_fragmentation(fragmentation), success)
     end
 end
 
-function __simple_fragmentation(molecule,frag::Fragmenter)
-    if frag.match_hydrogens
+function __simple_fragmentation(molecule,frag,fragmenter::Fragmenter)
+    if fragmenter.match_hydrogens
         target_atom_count = length(get_atoms(molecule))
     else
         target_atom_count = length(get_heavy_atoms(molecule))
     end
+    success = false
+    fragmentation_so_far = Dict{String,Any}()
+    fragmentation_so_far, atomIdxs_included_in_fragmentation = __search_non_overlapping_solution(fragmenter, molecule, deepcopy(fragmentation_so_far), Set(), Set())
+    success = length(atomIdxs_included_in_fragmentation) == target_atom_count
+    level = 1
+    while !success
+        fragmentation_so_far , atomIdxs_included_in_fragmentation_so_far = fragmenter.__clean_molecule_surrounding_unmatched_atoms(molecule, fragmentation, atomIdxs_included_in_fragmentation, level)
+        level +=1
+        len = length(atomIdxs_included_in_fragmentation_so_far)
+        fragmentation_so_far, atomIdxs_included_in_fragmentation_so_far = fragmenter.__search_non_overlapping_solution(molecule, fragmentation_so_far, atomIdxs_included_in_fragmentation_so_far, atomIdxs_included_in_fragmentation_so_far)
+        
+        success = (len == target_atom_count)
+        iszero(len) && break
+        success && break
+    end
+    return fragmentation_so_far, success
 end
+

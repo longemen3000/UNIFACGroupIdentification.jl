@@ -5,8 +5,10 @@ version = "0.1.0"
 
 [deps]
 MolecularGraph = "6c89ec66-9cd8-5372-9f91-fabc50dd27fd"
+RDKitMinimalLib = "44044271-7623-48dc-8250-42433c44e4b7"
 
 [compat]
+MolecularGraph = "0.11"
 julia = "1"
 
 [extras]
